@@ -9,12 +9,15 @@ def validate_grants(grants):
         ids.add(g["id"])
     return grants
 def evaluate(rows,context):
-    grants=validate_grants(context.get("parameters",{}).get("grants",GRANTS));good=[];bad=[]
+    grants=validate_grants((context or {}).get("parameters",{}).get("grants",GRANTS));good=[];bad=[]
     for row in rows:
         try:
             at=instant(row["access_time"]);reported=number(row["reported"])
             if reported not in {0,1}:raise DomainError("BAD_OBSERVED","报送判定必须为0或1")
-            active=[g for g in grants if g["principal"]==row["principal"] and g["resource"]==row["resource"] and instant(g["start"])<=at<instant(g["end"])]
-            good.append({**row,"at":at.isoformat(),"candidates":active,"candidate_count":len(active),"reported":str(reported)})
+            # 用途结论是本批唯一准入依据：被拒用途即便主体/资源/时间窗全命中也不得生成授权候选。
+            suppressed=row.get("purpose_out_of_scope") is True or row.get("purpose_effect")=="deny"
+            active=[g for g in grants if g["principal"]==row["principal"] and g["resource"]==row["resource"] and instant(g["start"])<=at<instant(g["end"])] if not suppressed else []
+            good.append({**row,"at":at.isoformat(),"candidates":active,"candidate_count":len(active),"reported":str(reported),"purpose_suppressed":suppressed})
         except (DomainError,KeyError) as e:bad.append(reject(row,getattr(e,"code","MISSING_FIELD"),str(e)))
-    return {"rows":good,"quarantine":bad,"metrics":{"active_hits":sum(r["candidate_count"] for r in good),"grant_versions":len(grants)}}
+    return {"rows":good,"quarantine":bad,"metrics":{"active_hits":sum(r["candidate_count"] for r in good),"grant_versions":len(grants),
+            "purpose_suppressed":sum(1 for r in good if r.get("purpose_effect")=="deny" and r["candidate_count"]==0)}}

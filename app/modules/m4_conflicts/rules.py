@@ -7,5 +7,11 @@ def evaluate(rows,context):
     out=[]
     for row in rows:
         decision=decide(row.get("candidates",[]),row["partition"])
-        out.append({**row,**decision,"rule_evidence":" / ".join(decision["matched_rules"]) or "NO_GRANT"})
-    return {"rows":out,"quarantine":[],"metrics":{"conflicts":sum(r["conflict"] for r in out),"explicit_denies":sum(bool(r["deny_rules"]) for r in out),"default_denies":sum(not r["matched_rules"] for r in out)}}
+        # 用途结论优先：超出获准范围的用途一律拒绝，不得被授权命中翻案。
+        if row.get("purpose_out_of_scope"):
+            decision={**decision,"effect":"deny","purpose_block":True,
+                      "rule_evidence":(" / ".join(decision["matched_rules"])+" / PURPOSE_DENY") if decision["matched_rules"] else "PURPOSE_DENY"}
+        else:
+            decision={**decision,"purpose_block":False,"rule_evidence":" / ".join(decision["matched_rules"]) or "NO_GRANT"}
+        out.append({**row,**decision})
+    return {"rows":out,"quarantine":[],"metrics":{"conflicts":sum(r["conflict"] for r in out),"explicit_denies":sum(bool(r["deny_rules"]) for r in out),"default_denies":sum(not r["matched_rules"] for r in out),"purpose_blocks":sum(r["purpose_block"] for r in out)}}

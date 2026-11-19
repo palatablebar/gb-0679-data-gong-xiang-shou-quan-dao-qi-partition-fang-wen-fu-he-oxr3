@@ -12,7 +12,11 @@ def evaluate(raw,context=None):
     if not text: raise DomainError("EMPTY_FILE","文件为空")
     if not text.strip(): raise DomainError("BLANK_ONLY","全部为空行")
     stream=csv.reader(io.StringIO(text,newline=""));header=next(stream,None)
-    if header!=COLUMNS: raise DomainError("BAD_HEADER","表头不匹配")
+    # 可选用途列：purpose/用途，位于标准列之后；缺失表示未声明用途。
+    if header is not None and len(header)==len(COLUMNS)+1 and header[:len(COLUMNS)]==COLUMNS and header[-1] not in {"purpose","用途"}:
+        raise DomainError("BAD_HEADER","表头不匹配")
+    if header!=COLUMNS and header!=list(COLUMNS)+["purpose"] and header!=list(COLUMNS)+["用途"]:
+        raise DomainError("BAD_HEADER","表头不匹配")
     rows=[];bad=[];seen={};duplicate=blank=repeated=count=0
     try:
         for cells in stream:

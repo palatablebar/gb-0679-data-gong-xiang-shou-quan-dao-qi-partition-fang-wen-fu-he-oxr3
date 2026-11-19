@@ -40,6 +40,15 @@ def create_app():
         p=request.get_json(silent=True) or {}
         if not isinstance(p.get("version"),int): raise DomainError("BAD_VERSION","请提供版本号")
         return store.review(run_id,p["version"],p.get("decision"))
+    @application.get("/api/runs/<run_id>/purposes")
+    def purposes_detail(run_id):
+        if not store.get_conclusion(run_id) and not store.get(run_id): raise DomainError("NOT_FOUND","批次不存在",404)
+        return store.purpose_report(run_id)
+    @application.post("/api/runs/<run_id>/purposes/switch")
+    def purposes_switch(run_id):
+        p=request.get_json(silent=True)
+        if not isinstance(p,dict): raise DomainError("BAD_BODY","请求需要对象")
+        return store.switch_conclusion(run_id,p.get("version"),p.get("approvals",{}))
     @application.get("/api/runs/<run_id>/archive")
     def archive(run_id):
         from app.archive import build_archive

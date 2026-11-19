@@ -13,6 +13,7 @@
 | M5 分区判定 | 查看并运行分区判定 | `/api/partitions` | `app/modules/m5_partitions/rules.py` | `tests/test_m5.py` |
 | M6 访问对账 | 查看并运行访问对账 | `/api/audit` | `app/modules/m6_audit/rules.py` | `tests/test_m6.py` |
 | M7 审计归档 | 查看并运行审计归档 | `/api/seals` | `app/modules/m7_seals/rules.py` | `tests/test_m7.py` |
+| 用途准入 | 形成并切换批次用途结论 | `/api/runs/<id>/purposes` | `app/purposes.py` | `tests/test_purposes.py` |
 
 ## 陷阱登记
 
@@ -29,6 +30,19 @@
 | TRAP-07 | 上游结果空值 | 误报拒绝 | 隔离缺失 | `app/values.py` | `tests/test_m3.py::test_real_missing_decision_not_zero` |
 | TRAP-19 | 允许与拒绝重叠 | 后写覆盖 | 拒绝优先且排序证据 | `app/modules/m4_conflicts/rules.py` | `tests/test_m4.py::test_deny_priority_counterexample` |
 | TRAP-23 | 授权到期点 | 多放行一次 | 半开生效窗 | `app/modules/m3_grants/rules.py` | `tests/test_m3.py::test_expiry_endpoint_excluded` |
+| TRAP-27 | 混合用途批 | 整批一个结论 | 唯一结论内逐用途准入 | `app/purposes.py` | `tests/test_purposes.py::test_one_conclusion_per_batch_from_actual_purposes` |
+| TRAP-28 | 拒绝用途 | 宽授权覆盖拒绝 | 用途结论抑制授权候选 | `app/modules/m3_grants/rules.py` | `tests/test_purposes.py::test_denied_purpose_suppresses_grant_hits` |
+| TRAP-29 | 实际用途超范围 | 按授权结果算一致 | 判越权访问且不封存 | `app/modules/m5_partitions/rules.py` | `tests/test_purposes.py::test_out_of_scope_is_violation_even_if_consistent` |
+| TRAP-30 | 同批重跑 | 重复生成结论 | 复用既有结论版本 | `app/store.py` | `tests/test_purposes.py::test_rerun_does_not_duplicate_conclusion` |
+| TRAP-31 | 结论切换失败 | 覆盖旧版与依据 | 版本条件切换+回滚保留 | `app/store.py` | `tests/test_purposes.py::test_switch_failure_preserves_active_conclusion` |
+
+## 用途准入
+
+每批访问在采信后立即形成**唯一一份**用途准入结论（`app/purposes.py`）：结论记录批内出现的每个实际用途及其准入结果，批级`verdict`分为 `allow`（全部获准）、`partial`（部分获准）、`deny`（全部拒绝）、`not_applicable`（未声明用途）。选择逐用途准入而非整批准入：分析已获准、营销被明确拒绝的混合批若整批放行会放出拒绝用途，若整批拒绝会误拦已获准数据。
+
+结论一经形成即为该批唯一依据：授权定版阶段，被拒用途不生成授权候选（TRAP-28）；冲突裁决阶段，被拒用途强制为`deny`，不被任何授权命中翻案（TRAP-19 叠加）；分区判定阶段，实际用途超出获准范围一律判`越权访问`并标记`sealable=False`，无论其授权效果是否“一致”（TRAP-29）；归档阶段仅封存`sealable`记录，拒绝用途单独列入隔离，不连累已获准数据；全批超范围则拒绝封存。
+
+同批重跑（同`run_id`）只复用既有结论，不再生成新版本（TRAP-30）。结论切换需提供`version`并以版本条件更新，切换时整批重算并原子落盘；版本失效返回409，失败回滚后旧版与按来源行保存的原始用途依据均保留（TRAP-31）。原始用途值（`purpose_raw`）与标准化的`purpose`分开保存，切换不改写。用途惯例：分析=allow、营销=deny，未登记用途默认拒绝；可通过参数`purpose_approvals`或`POST /api/runs/<id>/purposes/switch`变更。
 
 ## 对账规则
 
